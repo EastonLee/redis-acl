@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-redis/redis/v8"
-	"github.com/pingcap/errors"
+	"github.com/juju/errors"
 	"github.com/thoas/go-funk"
 )
 
@@ -235,7 +235,7 @@ func parseACLGetUser(result interface{}) (*ACLUser, error) {
 func ACLList(ctx context.Context, client redis.UniversalClient) ([]*ACLUser, error) {
 	result, err := client.Do(ctx, "ACL", "LIST").Result()
 	if err != nil {
-		return nil, errors.AddStack(err)
+		return nil, errors.Trace(err)
 	}
 
 	var users []*ACLUser
@@ -243,7 +243,7 @@ func ACLList(ctx context.Context, client redis.UniversalClient) ([]*ACLUser, err
 		s := i.(string)
 		user, err := parseACLListUser(s)
 		if err != nil {
-			return nil, errors.AddStack(err)
+			return nil, errors.Trace(err)
 		}
 		users = append(users, user)
 	}
@@ -256,12 +256,12 @@ func ACLList(ctx context.Context, client redis.UniversalClient) ([]*ACLUser, err
 func ACLGetUser(ctx context.Context, client redis.UniversalClient, name string) (*ACLUser, error) {
 	result, err := client.Do(ctx, "ACL", "GETUSER", name).Result()
 	if err != nil {
-		return nil, errors.AddStack(err)
+		return nil, errors.Trace(err)
 	}
 
 	user, err := parseACLGetUser(result)
 	if err != nil {
-		return nil, errors.AddStack(err)
+		return nil, errors.Trace(err)
 	}
 	user.Name = name
 	return user, nil
@@ -272,10 +272,10 @@ func ACLSetUser(ctx context.Context, client redis.UniversalClient, user *ACLUser
 	command := append([]interface{}{"ACL", "SETUSER"},
 		funk.Map(rules, func(i interface{}) interface{} { return i }).([]interface{})...)
 	_, err := client.Do(ctx, command...).Result()
-	return errors.AddStack(err)
+	return errors.Trace(err)
 }
 
 func ACLDelUser(ctx context.Context, client redis.UniversalClient, name string) error {
 	_, err := client.Do(ctx, "ACL", "DELUSER", name).Result()
-	return errors.AddStack(err)
+	return errors.Trace(err)
 }
