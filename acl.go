@@ -46,13 +46,14 @@ func (u *ACLUser) Consolidate() {
 	u.Commands = ""
 }
 
-func (u *ACLUser) String() (rules []string) {
+func (u *ACLUser) String() string {
 	genRulesWithPrefix := func(ruleList []string, prefix string) []string {
 		return funk.Map(ruleList, func(r string) string {
 			return prefix + r
 		}).([]string)
 	}
 
+	var rules []string
 	rules = append(rules, u.Name)
 
 	if u.Enabled {
@@ -90,7 +91,11 @@ func (u *ACLUser) String() (rules []string) {
 	}
 
 	// TODO: allowed and disallowed commands and categories
-	return rules
+	return strings.Join(rules, " ")
+}
+
+func (u *ACLUser) MarshalJSON() ([]byte, error) {
+	return []byte(u.String()), nil
 }
 
 func parseACLListUser(s string) (*ACLUser, error) {
