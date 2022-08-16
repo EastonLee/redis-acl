@@ -2,6 +2,8 @@ package redis_acl
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"sort"
 	"strings"
 
@@ -34,8 +36,8 @@ type ACLUser struct {
 	Channels []string `json:"channels"`
 
 	// TODO: maybe unnecessary
-	AllowedCommands          []string `json:"allowed_commands"`
-	AllowedCommandCategories []string `json:"allowed_categories"`
+	AllowedCommands   []string `json:"allowed_commands"`
+	AllowedCategories []string `json:"allowed_categories"`
 
 	DisallowedCommands   []string `json:"disallowed_commands"`
 	DisallowedCategories []string `json:"disallowed_categories"`
@@ -94,18 +96,72 @@ func (u *ACLUser) String() string {
 	return strings.Join(rules, " ")
 }
 
-func (u *ACLUser) MarshalJSON() ([]byte, error) {
-	return []byte(u.String()), nil
-}
+// func (u ACLUser) MarshalJSON() ([]byte, error) {
+// 	text := fmt.Sprintf(`"%s"`, u.String())
+// 	return []byte(text), nil
+// }
 
-func parseACLListUser(s string) (*ACLUser, error) {
+// func (u *ACLUser) UnmarshalJSON(data []byte) error {
+// 	if u == nil {
+// 		u = &ACLUser{}
+// 	}
+// 	newUser, err := ParseACLListUser(string(data))
+// 	if err != nil {
+// 		return errors.Trace(err)
+// 	}
+//
+// 	if u.Name == "" {
+// 		u.Name = newUser.Name
+// 	}
+// 	if len(u.Passwords) == 0 {
+// 		u.Passwords = newUser.Passwords
+// 	}
+// 	if len(u.PasswordHash) == 0 {
+// 		u.PasswordHash = newUser.PasswordHash
+// 	}
+// 	if len(u.PasswordsToRemove) == 0 {
+// 		u.PasswordsToRemove = newUser.PasswordsToRemove
+// 	}
+// 	if len(u.PasswordHashToRemove) == 0 {
+// 		u.PasswordHashToRemove = newUser.PasswordHashToRemove
+// 	}
+// 	if len(u.Keys) == 0 {
+// 		u.Keys = newUser.Keys
+// 	}
+// 	if len(u.Channels) == 0 {
+// 		u.Channels = newUser.Channels
+// 	}
+// 	if len(u.Flags) == 0 {
+// 		u.Flags = newUser.Flags
+// 	}
+// 	if len(u.Commands) == 0 {
+// 		u.Commands = newUser.Commands
+// 	}
+// 	if len(u.AllowedCommands) == 0 {
+// 		u.AllowedCommands = newUser.AllowedCommands
+// 	}
+// 	if len(u.AllowedCategories) == 0 {
+// 		u.AllowedCategories = newUser.AllowedCategories
+// 	}
+// 	if len(u.DisallowedCommands) == 0 {
+// 		u.DisallowedCommands = newUser.DisallowedCommands
+// 	}
+// 	if len(u.DisallowedCategories) == 0 {
+// 		u.DisallowedCategories = newUser.DisallowedCategories
+// 	}
+//
+// 	return nil
+// }
+
+func ParseACLListUser(s string) (*ACLUser, error) {
 	// https://redis.io/docs/manual/security/acl/#acl-rules
 	// example: "user default on nopass ~* &* +@all"
 	user := &ACLUser{}
 	segments := strings.Split(s, " ")
-	if len(segments) < 7 {
+	minimumSegments := 5
+	if len(segments) < minimumSegments {
 		return nil, errors.Errorf("expected that `ACL LIST` command result contains "+
-			"at least 7 segments, but got %v", segments)
+			"at least %d segments, but got %v", minimumSegments, segments)
 	}
 
 	user.Name = segments[1]
@@ -120,15 +176,16 @@ func parseACLListUser(s string) (*ACLUser, error) {
 			user.Flags = append(user.Flags, "off")
 
 		// commands
-		case s == "allcommands", s == "+*":
-			user.AllowedCommands = append(user.AllowedCommands, "@all")
+		case s == "allcommands", s == "+*", s == "+@all":
+			user.AllowedCategories = append(user.AllowedCategories, "@all")
 			user.Flags = append(user.Flags, "allcommands")
-		case s == "nocommands":
-			user.DisallowedCommands = append(user.DisallowedCommands, "@all")
+		case s == "nocommands", s == "-*", s == "-@all":
+			user.DisallowedCategories = append(user.DisallowedCategories, "@all")
+			user.Flags = append(user.Flags, "nocommands")
 		case strings.HasPrefix(s, "+@"):
-			user.AllowedCommandCategories = append(user.AllowedCommandCategories, s[1:])
+			user.AllowedCategories = append(user.AllowedCategories, s[1:])
 		case strings.HasPrefix(s, "-@"):
-			user.AllowedCommandCategories = append(user.DisallowedCategories, s[1:])
+			user.AllowedCategories = append(user.DisallowedCategories, s[1:])
 		case strings.HasPrefix(s, "+"):
 			user.AllowedCommands = append(user.AllowedCommands, s[1:])
 		case strings.HasPrefix(s, "-"):
@@ -162,9 +219,14 @@ func parseACLListUser(s string) (*ACLUser, error) {
 		case strings.HasPrefix(s, "resetpass"):
 			user.Passwords = nil
 		case strings.HasPrefix(s, ">"):
-			user.Passwords = append(user.Passwords, s[1:])
+			// automatically convert plaintext password to sha256 hash
+			h := sha256.New()
+			h.Write([]byte(s[1:]))
+			user.PasswordHash = append(user.PasswordHash, hex.EncodeToString(h.Sum(nil)))
 		case strings.HasPrefix(s, "<"):
-			user.Passwords = funk.FilterString(user.Passwords, func(p string) bool {
+			h := sha256.New()
+			h.Write([]byte(s[1:]))
+			user.PasswordHash = funk.FilterString(user.PasswordHash, func(p string) bool {
 				return p != s[1:]
 			})
 		case strings.HasPrefix(s, "#"):
@@ -246,7 +308,7 @@ func ACLList(ctx context.Context, client redis.UniversalClient) ([]*ACLUser, err
 	var users []*ACLUser
 	for _, i := range result.([]interface{}) {
 		s := i.(string)
-		user, err := parseACLListUser(s)
+		user, err := ParseACLListUser(s)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -273,9 +335,9 @@ func ACLGetUser(ctx context.Context, client redis.UniversalClient, name string) 
 }
 
 func ACLSetUser(ctx context.Context, client redis.UniversalClient, user *ACLUser) error {
-	rules := user.String()
+	segs := strings.Split(user.String(), " ")
 	command := append([]interface{}{"ACL", "SETUSER"},
-		funk.Map(rules, func(i interface{}) interface{} { return i }).([]interface{})...)
+		funk.Map(segs, func(i string) interface{} { return i }).([]interface{})...)
 	_, err := client.Do(ctx, command...).Result()
 	return errors.Trace(err)
 }
