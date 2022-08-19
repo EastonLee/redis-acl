@@ -21,14 +21,14 @@ import (
 type ACLUser struct {
 	Cluster string `json:"cluster"`
 
-	Name                 string   `json:"name"`
-	Flags                []string `json:"flags"`
-	Enabled              bool     `json:"enabled"`
-	NoPass               bool     `json:"nopass"`
-	Passwords            []string `json:"passwords"`
-	PasswordHash         []string `json:"password_hash"`
-	PasswordsToRemove    []string `json:"passwords_to_remove"`
-	PasswordHashToRemove []string `json:"password_hash_to_remove"`
+	Name                   string   `json:"name"`
+	Flags                  []string `json:"flags"`
+	Enabled                bool     `json:"enabled"`
+	NoPass                 bool     `json:"nopass"`
+	Passwords              []string `json:"passwords"`
+	PasswordHashes         []string `json:"password_hashes"`
+	PasswordsToRemove      []string `json:"passwords_to_remove"`
+	PasswordHashesToRemove []string `json:"password_hashes_to_remove"`
 	// Commands in form of "+@all -keys"
 	Commands string `json:"commands"`
 
@@ -68,9 +68,9 @@ func (u *ACLUser) String() string {
 		rules = append(rules, "nopass")
 	} else {
 		rules = append(rules, genRulesWithPrefix(u.Passwords, ">")...)
-		rules = append(rules, genRulesWithPrefix(u.PasswordHash, "#")...)
+		rules = append(rules, genRulesWithPrefix(u.PasswordHashes, "#")...)
 		rules = append(rules, genRulesWithPrefix(u.PasswordsToRemove, "<")...)
-		rules = append(rules, genRulesWithPrefix(u.PasswordHashToRemove, "!")...)
+		rules = append(rules, genRulesWithPrefix(u.PasswordHashesToRemove, "!")...)
 	}
 
 	if funk.InStrings(u.Flags, "allkeys") {
@@ -116,8 +116,8 @@ func (u *ACLUser) String() string {
 // 	if len(u.Passwords) == 0 {
 // 		u.Passwords = newUser.Passwords
 // 	}
-// 	if len(u.PasswordHash) == 0 {
-// 		u.PasswordHash = newUser.PasswordHash
+// 	if len(u.PasswordHashes) == 0 {
+// 		u.PasswordHashes = newUser.PasswordHashes
 // 	}
 // 	if len(u.PasswordsToRemove) == 0 {
 // 		u.PasswordsToRemove = newUser.PasswordsToRemove
@@ -153,6 +153,11 @@ func (u *ACLUser) String() string {
 // 	return nil
 // }
 
+func Sha256(pass string) string {
+	h := sha256.New()
+	h.Write([]byte(pass))
+	return hex.EncodeToString(h.Sum(nil))
+}
 func ParseACLListUser(s string) (*ACLUser, error) {
 	// https://redis.io/docs/manual/security/acl/#acl-rules
 	// example: "user default on nopass ~* &* +@all"
@@ -215,29 +220,50 @@ func ParseACLListUser(s string) (*ACLUser, error) {
 		// passwords
 		case strings.HasPrefix(s, "nopass"):
 			user.Passwords = nil
+			user.PasswordHashes = nil
 			user.NoPass = true
 		case strings.HasPrefix(s, "resetpass"):
 			user.Passwords = nil
+			user.PasswordHashes = nil
 		case strings.HasPrefix(s, ">"):
+			user.Passwords = append(user.Passwords, s[1:])
 			// automatically convert plaintext password to sha256 hash
-			h := sha256.New()
-			h.Write([]byte(s[1:]))
-			user.PasswordHash = append(user.PasswordHash, hex.EncodeToString(h.Sum(nil)))
+			hash := Sha256(s[1:])
+			if funk.InStrings(user.PasswordHashes, hash) {
+				user.PasswordHashes = append(user.PasswordHashes, hash)
+			}
 		case strings.HasPrefix(s, "<"):
-			h := sha256.New()
-			h.Write([]byte(s[1:]))
-			user.PasswordHash = funk.FilterString(user.PasswordHash, func(p string) bool {
+			user.Passwords = funk.FilterString(user.Passwords, func(p string) bool {
 				return p != s[1:]
 			})
+			hash := Sha256(s[1:])
+			user.PasswordHashes = funk.FilterString(user.PasswordHashes, func(p string) bool {
+				return p != hash
+			})
 		case strings.HasPrefix(s, "#"):
-			user.PasswordHash = append(user.PasswordHash, s[1:])
+			user.PasswordHashes = append(user.PasswordHashes, s[1:])
 		case strings.HasPrefix(s, "!"):
-			user.PasswordHash = funk.FilterString(user.PasswordHash, func(p string) bool {
+			user.Passwords = funk.FilterString(user.Passwords, func(p string) bool {
+				return Sha256(p) != s[1:]
+			})
+			user.PasswordHashes = funk.FilterString(user.PasswordHashes, func(p string) bool {
 				return p != s[1:]
 			})
 		}
 	}
 	user.Consolidate()
+	sort.Strings(user.Flags)
+	sort.Strings(user.Passwords)
+	sort.Strings(user.PasswordHashes)
+	sort.Strings(user.PasswordsToRemove)
+	sort.Strings(user.PasswordHashesToRemove)
+	sort.Strings(user.Keys)
+	sort.Strings(user.Channels)
+	sort.Strings(user.AllowedCommands)
+	sort.Strings(user.AllowedCategories)
+	sort.Strings(user.DisallowedCommands)
+	sort.Strings(user.DisallowedCategories)
+
 	return user, nil
 }
 
@@ -278,7 +304,7 @@ func parseACLGetUser(result interface{}) (*ACLUser, error) {
 			passwds := funk.Map(lineI, func(i interface{}) string {
 				return i.(string)
 			}).([]string)
-			user.PasswordHash = passwds
+			user.PasswordHashes = passwds
 		case 5:
 			commands := line.(string)
 			user.Commands = commands
