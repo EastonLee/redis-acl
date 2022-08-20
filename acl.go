@@ -35,7 +35,6 @@ type ACLUser struct {
 	Keys     []string `json:"keys"`
 	Channels []string `json:"channels"`
 
-	// TODO: maybe unnecessary
 	AllowedCommands   []string `json:"allowed_commands"`
 	AllowedCategories []string `json:"allowed_categories"`
 
@@ -96,63 +95,6 @@ func (u *ACLUser) String() string {
 	return strings.Join(rules, " ")
 }
 
-// func (u ACLUser) MarshalJSON() ([]byte, error) {
-// 	text := fmt.Sprintf(`"%s"`, u.String())
-// 	return []byte(text), nil
-// }
-
-// func (u *ACLUser) UnmarshalJSON(data []byte) error {
-// 	if u == nil {
-// 		u = &ACLUser{}
-// 	}
-// 	newUser, err := ParseACLListUser(string(data))
-// 	if err != nil {
-// 		return errors.Trace(err)
-// 	}
-//
-// 	if u.Name == "" {
-// 		u.Name = newUser.Name
-// 	}
-// 	if len(u.Passwords) == 0 {
-// 		u.Passwords = newUser.Passwords
-// 	}
-// 	if len(u.PasswordHashes) == 0 {
-// 		u.PasswordHashes = newUser.PasswordHashes
-// 	}
-// 	if len(u.PasswordsToRemove) == 0 {
-// 		u.PasswordsToRemove = newUser.PasswordsToRemove
-// 	}
-// 	if len(u.PasswordHashToRemove) == 0 {
-// 		u.PasswordHashToRemove = newUser.PasswordHashToRemove
-// 	}
-// 	if len(u.Keys) == 0 {
-// 		u.Keys = newUser.Keys
-// 	}
-// 	if len(u.Channels) == 0 {
-// 		u.Channels = newUser.Channels
-// 	}
-// 	if len(u.Flags) == 0 {
-// 		u.Flags = newUser.Flags
-// 	}
-// 	if len(u.Commands) == 0 {
-// 		u.Commands = newUser.Commands
-// 	}
-// 	if len(u.AllowedCommands) == 0 {
-// 		u.AllowedCommands = newUser.AllowedCommands
-// 	}
-// 	if len(u.AllowedCategories) == 0 {
-// 		u.AllowedCategories = newUser.AllowedCategories
-// 	}
-// 	if len(u.DisallowedCommands) == 0 {
-// 		u.DisallowedCommands = newUser.DisallowedCommands
-// 	}
-// 	if len(u.DisallowedCategories) == 0 {
-// 		u.DisallowedCategories = newUser.DisallowedCategories
-// 	}
-//
-// 	return nil
-// }
-
 func Sha256(pass string) string {
 	h := sha256.New()
 	h.Write([]byte(pass))
@@ -188,12 +130,24 @@ func ParseACLListUser(s string) (*ACLUser, error) {
 			user.DisallowedCategories = append(user.DisallowedCategories, "@all")
 			user.Flags = append(user.Flags, "nocommands")
 		case strings.HasPrefix(s, "+@"):
+			if s != "+@all" && !funk.InStrings(user.DisallowedCategories, "@all") {
+				user.DisallowedCategories = append(user.DisallowedCategories, "@all")
+			}
 			user.AllowedCategories = append(user.AllowedCategories, s[1:])
 		case strings.HasPrefix(s, "-@"):
-			user.AllowedCategories = append(user.DisallowedCategories, s[1:])
+			if s != "-@all" && !funk.InStrings(user.AllowedCategories, "@all") {
+				user.AllowedCategories = append(user.AllowedCategories, "@all")
+			}
+			user.DisallowedCategories = append(user.DisallowedCategories, s[1:])
 		case strings.HasPrefix(s, "+"):
+			if !funk.InStrings(user.DisallowedCategories, "@all") {
+				user.DisallowedCategories = append(user.DisallowedCategories, "@all")
+			}
 			user.AllowedCommands = append(user.AllowedCommands, s[1:])
 		case strings.HasPrefix(s, "-"):
+			if !funk.InStrings(user.AllowedCategories, "@all") {
+				user.AllowedCategories = append(user.AllowedCategories, "@all")
+			}
 			user.DisallowedCommands = append(user.DisallowedCommands, s[1:])
 
 		// keys
@@ -229,7 +183,7 @@ func ParseACLListUser(s string) (*ACLUser, error) {
 			user.Passwords = append(user.Passwords, s[1:])
 			// automatically convert plaintext password to sha256 hash
 			hash := Sha256(s[1:])
-			if funk.InStrings(user.PasswordHashes, hash) {
+			if !funk.InStrings(user.PasswordHashes, hash) {
 				user.PasswordHashes = append(user.PasswordHashes, hash)
 			}
 		case strings.HasPrefix(s, "<"):
