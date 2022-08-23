@@ -47,7 +47,7 @@ func (u *ACLUser) Consolidate() {
 	u.Commands = ""
 }
 
-func (u *ACLUser) String() string {
+func (u *ACLUser) String(showPass bool) string {
 	genRulesWithPrefix := func(ruleList []string, prefix string) []string {
 		return funk.Map(ruleList, func(r string) string {
 			return prefix + r
@@ -66,7 +66,9 @@ func (u *ACLUser) String() string {
 	if u.NoPass {
 		rules = append(rules, "nopass")
 	} else {
-		rules = append(rules, genRulesWithPrefix(u.Passwords, ">")...)
+		if showPass {
+			rules = append(rules, genRulesWithPrefix(u.Passwords, ">")...)
+		}
 		rules = append(rules, genRulesWithPrefix(u.PasswordHashes, "#")...)
 		rules = append(rules, genRulesWithPrefix(u.PasswordsToRemove, "<")...)
 		rules = append(rules, genRulesWithPrefix(u.PasswordHashesToRemove, "!")...)
@@ -315,7 +317,7 @@ func ACLGetUser(ctx context.Context, client redis.UniversalClient, name string) 
 }
 
 func ACLSetUser(ctx context.Context, client redis.UniversalClient, user *ACLUser) error {
-	segs := strings.Split(user.String(), " ")
+	segs := strings.Split(user.String(true), " ")
 	command := append([]interface{}{"ACL", "SETUSER"},
 		funk.Map(segs, func(i string) interface{} { return i }).([]interface{})...)
 	_, err := client.Do(ctx, command...).Result()

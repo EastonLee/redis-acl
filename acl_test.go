@@ -115,7 +115,7 @@ func TestACLUserString(t *testing.T) {
 		DisallowedCategories: nil,
 	}
 	assert.Equal(t, "easton on >pass1 ~key1 &* +@all",
-		user.String())
+		user.String(true))
 
 	user = ACLUser{
 		Cluster:              "",
@@ -134,5 +134,5 @@ func TestACLUserString(t *testing.T) {
 		DisallowedCategories: nil,
 	}
 	assert.Equal(t, "easton off nopass ~* resetchannels &channel1 +@all",
-		user.String())
+		user.String(true))
 }
