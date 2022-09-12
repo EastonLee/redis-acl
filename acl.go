@@ -93,6 +93,12 @@ func (u *ACLUser) String(showPass bool) string {
 		rules = append(rules, u.Commands)
 	}
 
+	for _, category := range u.AllowedCategories {
+		newSeg := "+" + category
+		if !funk.InStrings(rules, newSeg) {
+			rules = append(rules, newSeg)
+		}
+	}
 	// TODO: allowed and disallowed commands and categories
 	return strings.Join(rules, " ")
 }
